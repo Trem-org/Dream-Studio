@@ -139,7 +139,7 @@ export function CopilotPanel({
         },
         onError: (error) => {
           console.error("[CopilotPanel] Speech error:", error);
-          setSpeechError(error instanceof Error ? error.message : "Speech connection error");
+          setSpeechError(error || "Speech connection error");
           setSpeechActive(false);
           setSpeechConnecting(false);
           setSpeechSession(null);
