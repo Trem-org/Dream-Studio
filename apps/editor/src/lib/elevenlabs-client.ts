@@ -35,7 +35,7 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
 
 async function readElevenLabsError(
   response: Response,
-  kind: "music" | "SFX" | "TTS" | "voices" | "voice clone" | "voice delete",
+  kind: "music" | "SFX" | "TTS" | "voices" | "voice clone" | "voice delete" | "Scribe token",
 ): Promise<string> {
   const payload = await response.json().catch(() => null) as ElevenLabsErrorPayload | null;
   const error = payload?.error?.trim();
@@ -291,9 +291,15 @@ export async function getScribeToken(): Promise<string> {
   });
 
   if (!response.ok) {
-    throw new Error(await readElevenLabsError(response, "scribe-token" as any));
+    throw new Error(await readElevenLabsError(response, "Scribe token"));
   }
 
-  const data = await response.json() as { token: string };
-  return data.token;
+  const data = await response.json() as string | { token?: string };
+  const token = typeof data === "string" ? data : data.token;
+
+  if (!token) {
+    throw new Error("ElevenLabs Scribe token response did not include a token.");
+  }
+
+  return token;
 }

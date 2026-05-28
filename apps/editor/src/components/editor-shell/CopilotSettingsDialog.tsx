@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/dialog";
 import type { CopilotSettings, GeminiModelId } from "@/lib/copilot/types";
 import { loadCopilotSettings, saveCopilotSettings } from "@/lib/copilot/settings";
-import { setupSpeechEngine } from "@/lib/elevenlabs-client";
 
 export function CopilotSettingsDialog({ onSaved }: { onSaved?: () => void }) {
   const [open, setOpen] = useState(false);
@@ -23,9 +22,6 @@ export function CopilotSettingsDialog({ onSaved }: { onSaved?: () => void }) {
     saveCopilotSettings(settings);
     setOpen(false);
     onSaved?.();
-    setupSpeechEngine().catch((err) =>
-      console.error("[CopilotSettingsDialog] Speech Engine setup failed:", err)
-    );
   };
 
   return (
@@ -106,21 +102,6 @@ export function CopilotSettingsDialog({ onSaved }: { onSaved?: () => void }) {
             </div>
             <p className="text-[10px] text-foreground/36">
               Used for voice and audio features. Stored locally in your browser.
-            </p>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-medium tracking-[0.18em] text-foreground/52 uppercase">
-              ElevenLabs Speech Engine ID
-            </label>
-            <Input
-              className="h-10 rounded-xl border-white/10 bg-white/[0.045] text-sm font-mono"
-              onChange={(e) => setSettings({ ...settings, elevenlabsSpeechEngineId: e.target.value })}
-              placeholder="e.g. seng_8k3m9xr4..."
-              value={settings.elevenlabsSpeechEngineId || ""}
-            />
-            <p className="text-[10px] text-foreground/36">
-              ID of the speech engine to route voice connections.
             </p>
           </div>
 

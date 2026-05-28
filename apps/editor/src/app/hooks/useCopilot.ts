@@ -13,7 +13,6 @@ import {
   saveMorphusMemory,
   type MorphusFileRecord
 } from "@/lib/copilot/morphus-memory";
-import { setupSpeechEngine } from "@/lib/elevenlabs-client";
 
 export type GeneratedGame = { title: string; html: string };
 
@@ -686,13 +685,10 @@ export function useCopilot(
   useEffect(() => {
     const check = () => {
       setConfigured(isCopilotConfigured());
-      void setupSpeechEngine().catch((err) => console.error(err));
     };
 
     window.addEventListener("focus", check);
     window.addEventListener("storage", check);
-
-    void setupSpeechEngine().catch((err) => console.error(err));
 
     return () => {
       window.removeEventListener("focus", check);

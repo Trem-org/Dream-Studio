@@ -33,8 +33,9 @@ import type {
 } from "@/lib/copilot/types";
 import { cn } from "@/lib/utils";
 import { useTts } from "@/hooks/useTts";
-import { Conversation } from "@elevenlabs/client";
+import { Scribe, RealtimeEvents, CommitStrategy, type RealtimeConnection } from "@elevenlabs/client";
 import { loadCopilotSettings } from "@/lib/copilot/settings";
+import { getScribeToken } from "@/lib/elevenlabs-client";
 
 type GeneratedGame = { title: string; html: string };
 
@@ -75,83 +76,172 @@ export function CopilotPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isActive = session.status === "thinking" || session.status === "executing";
 
-  const [speechActive, setSpeechActive] = useState(false);
-  const [speechConnecting, setSpeechConnecting] = useState(false);
-  const [speechSession, setSpeechSession] = useState<any>(null);
+  const [scribeActive, setScribeActive] = useState(false);
+  const [scribeConnecting, setScribeConnecting] = useState(false);
   const [speechError, setSpeechError] = useState("");
+
+  const scribeConnectionRef = useRef<RealtimeConnection | null>(null);
+  const scribeRequestIdRef = useRef(0);
+  const committedPartsRef = useRef<string[]>([]);
+  const latestPartialRef = useRef<string>("");
 
   useEffect(() => {
     return () => {
-      if (speechSession) {
-        speechSession.endSession().catch((err: any) => {
-          console.error("[CopilotPanel] Clean unmount speech session end error:", err);
-        });
-      }
-    };
-  }, [speechSession]);
-
-  const handleToggleSpeech = async () => {
-    if (speechActive) {
-      if (speechSession) {
+      if (scribeConnectionRef.current) {
         try {
-          await speechSession.endSession();
+          scribeConnectionRef.current.close();
         } catch (err) {
-          console.error("[CopilotPanel] Error ending speech session:", err);
+          console.error("[CopilotPanel] Clean unmount Scribe connection close error:", err);
         }
       }
-      setSpeechActive(false);
-      setSpeechConnecting(false);
-      setSpeechSession(null);
+    };
+  }, []);
+
+  const getErrorMessage = (err: unknown): string => {
+    if (!err) return "Unknown error";
+    if (typeof err === "string") return err;
+    if (err instanceof Error) return err.message;
+    if (typeof err === "object") {
+      if ("error" in err && typeof err.error === "string") return err.error;
+      if ("message" in err && typeof err.message === "string") return err.message;
+    }
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return String(err);
+    }
+  };
+
+  const handleStopScribe = (sendTranscript: boolean) => {
+    scribeRequestIdRef.current += 1;
+
+    if (scribeConnectionRef.current) {
+      try {
+        scribeConnectionRef.current.close();
+      } catch (err) {
+        console.error("[CopilotPanel] Error closing Scribe connection:", err);
+      }
+      scribeConnectionRef.current = null;
+    }
+
+    if (sendTranscript) {
+      const finalTranscript = [...committedPartsRef.current, latestPartialRef.current]
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join(" ");
+
+      if (finalTranscript) {
+        onSendMessage(finalTranscript);
+      }
+    }
+
+    setScribeActive(false);
+    setScribeConnecting(false);
+    committedPartsRef.current = [];
+    latestPartialRef.current = "";
+  };
+
+  const handleStartScribe = async () => {
+    if (scribeActive || scribeConnecting) {
       return;
     }
 
     const settings = loadCopilotSettings();
-    const agentId = settings.elevenlabsSpeechEngineId;
     const apiKey = settings.elevenlabsApiKey;
 
-    if (!agentId || !apiKey) {
-      setSpeechError("Configure ElevenLabs API Key and Speech Engine ID in settings first.");
+    if (!apiKey) {
+      setSpeechError("Configure ElevenLabs API Key in settings first.");
       setTimeout(() => setSpeechError(""), 4000);
       return;
     }
 
-    setSpeechConnecting(true);
+    setScribeConnecting(true);
     setSpeechError("");
+    const requestId = scribeRequestIdRef.current + 1;
+    scribeRequestIdRef.current = requestId;
 
     try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });
+      const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      permissionStream.getTracks().forEach((track) => track.stop());
 
-      const conversation = await Conversation.startSession({
-        agentId,
-        onConnect: ({ conversationId }) => {
-          console.log("[CopilotPanel] Speech connected:", conversationId);
-          setSpeechActive(true);
-          setSpeechConnecting(false);
-        },
-        onDisconnect: () => {
-          console.log("[CopilotPanel] Speech disconnected");
-          setSpeechActive(false);
-          setSpeechConnecting(false);
-          setSpeechSession(null);
-        },
-        onMessage: (message) => {
-          console.log("[CopilotPanel] Speech message:", message);
-        },
-        onError: (error) => {
-          console.error("[CopilotPanel] Speech error:", error);
-          setSpeechError(error || "Speech connection error");
-          setSpeechActive(false);
-          setSpeechConnecting(false);
-          setSpeechSession(null);
-          setTimeout(() => setSpeechError(""), 4000);
+      const token = await getScribeToken();
+
+      if (scribeRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      committedPartsRef.current = [];
+      latestPartialRef.current = "";
+
+      const connection = Scribe.connect({
+        token,
+        modelId: "scribe_v2_realtime",
+        commitStrategy: CommitStrategy.VAD,
+        microphone: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
         },
       });
 
-      setSpeechSession(conversation);
+      scribeConnectionRef.current = connection;
+
+      connection.on(RealtimeEvents.OPEN, () => {
+        if (scribeRequestIdRef.current !== requestId) {
+          connection.close();
+          return;
+        }
+        console.log("[CopilotPanel] Scribe connection opened");
+        setScribeActive(true);
+        setScribeConnecting(false);
+      });
+
+      connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, (data) => {
+        if (scribeRequestIdRef.current !== requestId) {
+          return;
+        }
+        if (data && typeof data.text === "string") {
+          latestPartialRef.current = data.text;
+        }
+      });
+
+      connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, (data) => {
+        if (scribeRequestIdRef.current !== requestId) {
+          return;
+        }
+        if (data && typeof data.text === "string") {
+          committedPartsRef.current.push(data.text);
+          latestPartialRef.current = "";
+        }
+      });
+
+      connection.on(RealtimeEvents.ERROR, (error) => {
+        if (scribeRequestIdRef.current !== requestId) {
+          return;
+        }
+        console.error("[CopilotPanel] Scribe error:", error);
+        const errMsg = getErrorMessage(error);
+        setSpeechError(errMsg);
+        setTimeout(() => setSpeechError(""), 4000);
+        handleStopScribe(false);
+      });
+
+      connection.on(RealtimeEvents.CLOSE, () => {
+        if (scribeRequestIdRef.current !== requestId) {
+          return;
+        }
+        console.log("[CopilotPanel] Scribe connection closed");
+        setScribeActive(false);
+        setScribeConnecting(false);
+      });
+
     } catch (err) {
-      console.error("[CopilotPanel] Failed to start speech session:", err);
-      setSpeechError(err instanceof Error ? err.message : "Microphone permission denied or connection failed");
-      setSpeechConnecting(false);
+      if (scribeRequestIdRef.current !== requestId) {
+        return;
+      }
+      console.error("[CopilotPanel] Failed to start Scribe session:", err);
+      setSpeechError(getErrorMessage(err));
+      setScribeConnecting(false);
       setTimeout(() => setSpeechError(""), 4000);
     }
   };
@@ -366,21 +456,6 @@ export function CopilotPanel({
             {speechError}
           </div>
         )}
-        {speechActive && (
-          <div className="mb-2 flex items-center justify-between rounded-xl border border-emerald-400/14 bg-emerald-500/10 px-3 py-2 text-[10px] text-emerald-300">
-            <span className="flex items-center gap-1.5 font-medium">
-              <span className="size-2 rounded-full bg-emerald-400 animate-ping" />
-              Voice Session Active
-            </span>
-            <button
-              onClick={handleToggleSpeech}
-              className="text-[9px] uppercase tracking-wider text-white/44 hover:text-white"
-              type="button"
-            >
-              Disconnect
-            </button>
-          </div>
-        )}
         <input
           accept="image/*"
           className="hidden"
@@ -402,20 +477,20 @@ export function CopilotPanel({
           <button
             className={cn(
               "flex size-9 shrink-0 items-center justify-center rounded-xl border transition-all duration-300 relative overflow-hidden",
-              speechActive
+              scribeActive
                 ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.2)]"
-                : speechConnecting
+                : scribeConnecting
                 ? "border-[#f6d07d]/30 bg-[#f6d07d]/10 text-[#f6d07d]"
                 : "border-white/10 bg-white/[0.04] text-foreground/40 hover:bg-white/[0.07] hover:text-foreground/72 disabled:pointer-events-none disabled:opacity-40"
             )}
-            disabled={isActive}
-            onClick={handleToggleSpeech}
-            title={speechActive ? "Disconnect voice session" : speechConnecting ? "Connecting voice..." : "Voice session with Morphus"}
+            disabled={isActive || scribeConnecting || scribeActive}
+            onClick={handleStartScribe}
+            title={scribeActive ? "Recording speech..." : scribeConnecting ? "Connecting..." : "Voice input with Morphus"}
             type="button"
           >
-            {speechConnecting ? (
+            {scribeConnecting ? (
               <Loader2 className="size-3.5 animate-spin" />
-            ) : speechActive ? (
+            ) : scribeActive ? (
               <>
                 <Mic className="size-3.5" />
                 <span className="absolute inset-0 bg-emerald-400/10 animate-ping rounded-xl pointer-events-none" />
@@ -467,6 +542,58 @@ export function CopilotPanel({
           )}
         </div>
       </div>
+
+      {(scribeActive || scribeConnecting) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xl animate-fade-in">
+          <style dangerouslySetInnerHTML={{ __html: `
+            @keyframes orb-pulse {
+              0%, 100% {
+                transform: scale(1);
+                box-shadow:
+                  0 0 40px 10px rgba(168, 85, 247, 0.5),
+                  0 0 80px 20px rgba(59, 130, 246, 0.3),
+                  inset 0 0 20px rgba(255, 255, 255, 0.2);
+              }
+              50% {
+                transform: scale(1.08);
+                box-shadow:
+                  0 0 60px 25px rgba(168, 85, 247, 0.7),
+                  0 0 120px 40px rgba(59, 130, 246, 0.5),
+                  inset 0 0 30px rgba(255, 255, 255, 0.4);
+              }
+            }
+            .animate-orb {
+              animation: orb-pulse 3s infinite ease-in-out;
+            }
+            .animate-fade-in {
+              animation: fadeIn 0.3s ease-out forwards;
+            }
+            @keyframes fadeIn {
+              from { opacity: 0; }
+              to { opacity: 1; }
+            }
+          `}} />
+
+          {/* Backdrop click to cancel */}
+          <div
+            className="absolute inset-0 cursor-default"
+            onClick={() => handleStopScribe(false)}
+          />
+
+          {/* Glowing Orb container */}
+          <div
+            onClick={() => handleStopScribe(true)}
+            className="relative z-10 flex size-40 cursor-pointer items-center justify-center rounded-full bg-gradient-to-tr from-purple-600 via-pink-500 to-cyan-400 transition-all duration-300 hover:scale-105 active:scale-95 animate-orb"
+            title="Click to stop and send transcript"
+          >
+            {/* Inner subtle detailing inside the orb to make it look premium */}
+            <div className="absolute inset-1.5 rounded-full bg-black/10 backdrop-blur-sm" />
+            <div className="absolute inset-3 rounded-full bg-gradient-to-bl from-purple-500/20 via-transparent to-cyan-400/20" />
+            {/* A tiny inner bright white core */}
+            <div className="absolute size-4 rounded-full bg-white/20 blur-[2px]" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
