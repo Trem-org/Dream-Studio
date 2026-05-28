@@ -44,12 +44,16 @@ export function PreviewNpcDialogueOverlay() {
 
     const historySnapshot = session.history.map((t) => ({ role: t.role, text: t.text }));
 
+    const settings = loadCopilotSettings();
+
     try {
       const reply = await generateNpcReply({
         characterPrompt: session.characterPrompt,
         history: historySnapshot,
         npcName: session.displayName,
-        userMessage: text
+        userMessage: text,
+        apiKey: settings.geminiApiKey,
+        model: settings.gemini.model
       });
 
       const active = previewNpcDialogueStore.session;

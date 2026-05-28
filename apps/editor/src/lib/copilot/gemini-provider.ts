@@ -20,7 +20,9 @@ export function createGeminiProvider(): CopilotProvider {
           messages,
           tools,
           systemPrompt,
-          temperature: config.temperature
+          temperature: config.temperature,
+          apiKey: config.apiKey,
+          model: config.model
         }),
         headers: {
           "Content-Type": "application/json"

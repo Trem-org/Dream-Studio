@@ -31,6 +31,8 @@ function parsePayload(body: unknown): CopilotGenerateRequest {
     messages: payload?.messages ?? [],
     tools: payload?.tools ?? [],
     systemPrompt: payload?.systemPrompt ?? "",
-    temperature: typeof payload?.temperature === "number" ? payload.temperature : 0.3
+    temperature: typeof payload?.temperature === "number" ? payload.temperature : 0.3,
+    apiKey: typeof payload?.apiKey === "string" ? payload.apiKey : undefined,
+    model: typeof payload?.model === "string" ? payload.model : undefined
   };
 }

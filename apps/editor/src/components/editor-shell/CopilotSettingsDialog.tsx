@@ -9,13 +9,14 @@ import {
   DialogTitle,
   DialogTrigger
 } from "@/components/ui/dialog";
-import type { CopilotSettings } from "@/lib/copilot/types";
+import type { CopilotSettings, GeminiModelId } from "@/lib/copilot/types";
 import { loadCopilotSettings, saveCopilotSettings } from "@/lib/copilot/settings";
 
 export function CopilotSettingsDialog({ onSaved }: { onSaved?: () => void }) {
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<CopilotSettings>(loadCopilotSettings);
   const [showElevenLabsKey, setShowElevenLabsKey] = useState(false);
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
 
   const handleSave = () => {
     saveCopilotSettings(settings);
@@ -37,6 +38,47 @@ export function CopilotSettingsDialog({ onSaved }: { onSaved?: () => void }) {
           <DialogTitle>Vibe Settings</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-2">
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-medium tracking-[0.18em] text-foreground/52 uppercase">
+              Gemini Model
+            </label>
+            <select
+              className="flex h-10 w-full rounded-xl border border-white/10 bg-white/[0.045] px-3 py-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+              onChange={(e) => setSettings({ ...settings, gemini: { model: e.target.value as GeminiModelId } })}
+              value={settings.gemini.model}
+            >
+              <option value="gemini-3.1-pro-preview" className="bg-[#0a1510] text-foreground">gemini-3.1-pro-preview</option>
+              <option value="gemini-3-flash-preview" className="bg-[#0a1510] text-foreground">gemini-3-flash-preview</option>
+              <option value="gemini-3.5-flash" className="bg-[#0a1510] text-foreground">gemini-3.5-flash</option>
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-medium tracking-[0.18em] text-foreground/52 uppercase">
+              Gemini API Key
+            </label>
+            <div className="relative">
+              <Input
+                className="h-10 rounded-xl border-white/10 bg-white/[0.045] pr-10 text-sm font-mono"
+                onChange={(e) => setSettings({ ...settings, geminiApiKey: e.target.value })}
+                placeholder="Enter your Gemini API key"
+                type={showGeminiKey ? "text" : "password"}
+                value={settings.geminiApiKey || ""}
+              />
+              <Button
+                className="absolute right-1 top-1 size-8 rounded-lg text-foreground/48"
+                onClick={() => setShowGeminiKey(!showGeminiKey)}
+                size="icon-sm"
+                variant="ghost"
+              >
+                {showGeminiKey ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+              </Button>
+            </div>
+            <p className="text-[10px] text-foreground/36">
+              Used for code generation and NPC chat. Stored locally in your browser.
+            </p>
+          </div>
+
           <div className="space-y-1.5">
             <label className="text-[11px] font-medium tracking-[0.18em] text-foreground/52 uppercase">
               ElevenLabs API Key

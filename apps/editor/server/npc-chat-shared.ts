@@ -6,13 +6,14 @@ export type NpcChatRequest = {
   history: { role: "user" | "assistant"; text: string }[];
   npcName: string;
   userMessage: string;
+  apiKey?: string;
 };
 
 export async function generateNpcChatReply(params: NpcChatRequest) {
-  const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
+  const apiKey = params.apiKey?.trim() || process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
 
   if (!apiKey) {
-    throw new Error("Missing GEMINI_API_KEY in the server environment.");
+    throw new Error("Missing GEMINI_API_KEY/API key configuration.");
   }
 
   const systemInstruction = [

@@ -8,6 +8,8 @@ export async function generateNpcReply(params: {
   history: PreviewNpcChatHistoryTurn[];
   npcName: string;
   userMessage: string;
+  apiKey?: string;
+  model?: string;
 }): Promise<string> {
   const response = await fetch("/api/copilot/npc", {
     body: JSON.stringify(params),
@@ -24,7 +26,7 @@ export async function generateNpcReply(params: {
   }
 
   if (!payload.text?.trim()) {
-    throw new Error("Gemma returned an empty reply.");
+    throw new Error("Gemini returned an empty reply.");
   }
 
   return payload.text.trim();

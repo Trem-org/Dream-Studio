@@ -860,7 +860,7 @@ export function useCopilot(
       );
 
       const providerConfig = {
-        apiKey: "",
+        apiKey: settings.provider === "gemini" ? settings.geminiApiKey || "" : "",
         model: settings.provider === "gemini" ? settings.gemini.model : settings.codex.model,
         temperature: settings.temperature
       };

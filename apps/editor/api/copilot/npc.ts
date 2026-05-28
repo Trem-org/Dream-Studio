@@ -1,13 +1,14 @@
 import { GoogleGenAI } from "@google/genai";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-const SERVER_GEMMA_MODEL = "gemma-4-31b-it";
+const SERVER_GEMMA_MODEL = "gemini-3.1-pro-preview";
 
 type NpcChatRequest = {
   characterPrompt?: string;
   history?: Array<{ role: "user" | "assistant"; text: string }>;
   npcName?: string;
   userMessage?: string;
+  apiKey?: string;
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -17,10 +18,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const payload = (req.body ?? {}) as NpcChatRequest;
-    const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
+    const apiKey = payload.apiKey?.trim() || process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
 
     if (!apiKey) {
-      return res.status(500).json({ error: "Missing GEMINI_API_KEY in the Vercel environment." });
+      return res.status(500).json({ error: "Missing GEMINI_API_KEY/API key configuration." });
     }
 
     const text = await generateNpcReply(apiKey, payload);

@@ -6,12 +6,7 @@ import type {
   CopilotToolDeclaration
 } from "../src/lib/copilot/types.js";
 
-export const SERVER_GEMMA_MODEL = "gemma-4-31b-it";
-const GEMINI_FLASH_FALLBACK_MODEL = "gemini-3-flash-preview";
-const LIGHTNING_MODEL = "lightning-ai/gemma-4-31B-it";
-const LIGHTNING_API_URL = "https://lightning.ai/api/v1/chat/completions";
-const NVIDIA_MODEL = "minimaxai/minimax-m2.7";
-const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
+export const SERVER_GEMMA_MODEL = "gemini-3.1-pro-preview";
 const PRIMARY_TIMEOUT_MS = 8_000;
 const FALLBACK_TIMEOUT_MS = 10_000;
 const GEMINI_FLASH_TIMEOUT_MS = 18_000;
@@ -24,6 +19,7 @@ export type CopilotGenerateRequest = {
   tools: CopilotToolDeclaration[];
   systemPrompt: string;
   temperature: number;
+  apiKey?: string;
 };
 
 type TimeoutPolicy = {
@@ -675,229 +671,14 @@ function buildGeminiFlashFallbackText(request: CopilotGenerateRequest) {
   return lines.join("\n\n");
 }
 
-function convertToolsForLightning(tools: CopilotToolDeclaration[]) {
-  return tools.map((tool) => ({
-    type: "function",
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters
-    }
-  }));
-}
 
-async function generateViaLightning(request: CopilotGenerateRequest): Promise<CopilotResponse> {
-  const apiKey = process.env.LIGHTNING_API_KEY?.trim();
+const SUITE_MODELS = ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-3.5-flash"];
+
+async function generateViaFallbackModel(request: CopilotGenerateRequest, model: string): Promise<CopilotResponse> {
+  const apiKey = request.apiKey?.trim() || process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
 
   if (!apiKey) {
-    throw new Error("Missing LIGHTNING_API_KEY in the server environment.");
-  }
-
-  const timeoutPolicy = getTimeoutPolicy(request);
-  const tools = convertToolsForLightning(request.tools);
-  const toolPayload: LightningChatPayload = {
-    model: LIGHTNING_MODEL,
-    messages: [
-      {
-        role: "system",
-        content: request.systemPrompt
-      },
-      ...convertMessagesForLightning(request.messages)
-    ],
-    temperature: request.temperature
-  };
-
-  if (tools.length > 0) {
-    toolPayload.tools = tools;
-    toolPayload.tool_choice = "auto";
-  }
-
-  try {
-    return await withTimeout(
-      requestLightningCompletion(apiKey, toolPayload),
-      timeoutPolicy.fallbackMs,
-      "Lightning fallback",
-    );
-  } catch (error) {
-    if (!(error instanceof LightningRequestError) || ![400, 422].includes(error.status)) {
-      throw error;
-    }
-
-    return withTimeout(
-      requestLightningCompletion(apiKey, {
-        model: LIGHTNING_MODEL,
-        messages: [
-          {
-            role: "system",
-            content: `${request.systemPrompt}\n\nLightning fallback is running in text-only mode because the provider rejected the tool-call request. If you need an action, describe the exact next step clearly.`
-          },
-          ...convertMessagesForLightningTextOnly(request.messages)
-        ],
-        temperature: request.temperature
-      }),
-      timeoutPolicy.fallbackMs,
-      "Lightning text-only fallback",
-    );
-  }
-}
-
-async function requestLightningCompletion(
-  apiKey: string,
-  body: LightningChatPayload
-): Promise<CopilotResponse> {
-  const response = await fetch(LIGHTNING_API_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
-  });
-
-  const rawBody = await response.text();
-  const payload = parseLightningPayload(rawBody);
-
-  if (!response.ok) {
-    const message = readLightningError(payload, rawBody)
-      || `Lightning fallback failed with status ${response.status}.`;
-    throw new LightningRequestError(message, response.status);
-  }
-
-  const choice = payload?.choices?.[0]?.message;
-  const content = choice?.content;
-  const text = Array.isArray(content)
-    ? content.map((part) => part.text ?? "").join("")
-    : typeof content === "string"
-      ? content
-      : "";
-
-  const toolCalls: CopilotToolCall[] = (choice?.tool_calls ?? []).map((toolCall) => ({
-    id: toolCall.id ?? `tc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    name: toolCall.function?.name ?? "",
-    args: safeParseToolArguments(toolCall.function?.arguments)
-  }));
-
-  return {
-    text,
-    toolCalls,
-    rawParts: text ? [{ text }] : []
-  };
-}
-
-function parseLightningPayload(rawBody: string): LightningPayload {
-  if (!rawBody) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(rawBody) as LightningPayload;
-  } catch {
-    return null;
-  }
-}
-
-function readLightningError(payload: LightningPayload, rawBody: string) {
-  if (typeof payload?.error === "string") {
-    return payload.error;
-  }
-
-  return payload?.error?.message
-    || payload?.message
-    || payload?.detail
-    || rawBody.replace(/\s+/g, " ").trim();
-}
-
-function formatFallbackError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  return message || "unknown error";
-}
-
-function isMorphusRequest(request: CopilotGenerateRequest) {
-  return request.tools.some((tool) => tool.name === "generate_game_html" || tool.name.startsWith("morphus_"));
-}
-
-function getTimeoutPolicy(request: CopilotGenerateRequest): TimeoutPolicy {
-  if (isMorphusRequest(request)) {
-    return {
-      primaryMs: MORPHUS_PRIMARY_TIMEOUT_MS,
-      fallbackMs: MORPHUS_FALLBACK_TIMEOUT_MS,
-      geminiFlashMs: MORPHUS_GEMINI_FLASH_TIMEOUT_MS
-    };
-  }
-
-  return {
-    primaryMs: PRIMARY_TIMEOUT_MS,
-    fallbackMs: FALLBACK_TIMEOUT_MS,
-    geminiFlashMs: GEMINI_FLASH_TIMEOUT_MS
-  };
-}
-
-async function generateViaNvidia(request: CopilotGenerateRequest): Promise<CopilotResponse> {
-  const apiKey = process.env.NVIDIA_API_KEY?.trim() || process.env.NVAPI_KEY?.trim();
-
-  if (!apiKey) {
-    throw new Error("Missing NVIDIA_API_KEY in the server environment.");
-  }
-
-  const timeoutPolicy = getTimeoutPolicy(request);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutPolicy.fallbackMs);
-
-  let response: Response;
-  try {
-    response = await fetch(NVIDIA_API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: NVIDIA_MODEL,
-        messages: [
-          {
-            role: "system",
-            content: `${request.systemPrompt}\n\nYou are running as the final NVIDIA fallback after Gemini and Lightning failed. Respond with clear text instructions or code-oriented guidance.`
-          },
-          ...convertMessagesForLightningTextOnly(request.messages)
-        ],
-        temperature: request.temperature,
-        top_p: 0.95,
-        max_tokens: 1024,
-        stream: false
-      })
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  const rawBody = await response.text();
-  const payload = parseLightningPayload(rawBody);
-
-  if (!response.ok) {
-    throw new Error(readLightningError(payload, rawBody) || `NVIDIA fallback failed with status ${response.status}.`);
-  }
-
-  const choice = payload?.choices?.[0]?.message;
-  const content = choice?.content;
-  const text = Array.isArray(content)
-    ? content.map((part) => part.text ?? "").join("")
-    : typeof content === "string"
-      ? content
-      : "";
-
-  return {
-    text,
-    toolCalls: [],
-    rawParts: text ? [{ text }] : []
-  };
-}
-
-async function generateViaGeminiFlash(request: CopilotGenerateRequest): Promise<CopilotResponse> {
-  const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
-
-  if (!apiKey) {
-    throw new Error("Missing GEMINI_API_KEY in the server environment.");
+    throw new Error(`Missing GEMINI_API_KEY for fallback model ${model}.`);
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -907,7 +688,7 @@ async function generateViaGeminiFlash(request: CopilotGenerateRequest): Promise<
 
   const response = await withTimeout(
     ai.models.generateContent({
-      model: GEMINI_FLASH_FALLBACK_MODEL,
+      model: model,
       contents: [
         {
           role: "user",
@@ -919,7 +700,7 @@ async function generateViaGeminiFlash(request: CopilotGenerateRequest): Promise<
         }
       ],
       config: {
-        systemInstruction: `${request.systemPrompt}\n\nYou are running as the Gemini Flash fallback after the primary Gemini request failed or timed out. Keep working through tools. If the user asks to modify, build, add, continue, or inspect, call the appropriate tool instead of replying with future-tense planning text. Use text only when the task is complete or you need a brief clarification.`,
+        systemInstruction: `${request.systemPrompt}\n\nYou are running as the ${model} fallback after the primary request failed or timed out. Keep working through tools. If the user asks to modify, build, add, continue, or inspect, call the appropriate tool instead of replying with future-tense planning text. Use text only when the task is complete or you need a brief clarification.`,
         temperature: request.temperature,
         tools: [{ functionDeclarations: convertToolDeclarations(request.tools) }],
         toolConfig: {
@@ -935,54 +716,38 @@ async function generateViaGeminiFlash(request: CopilotGenerateRequest): Promise<
       }
     }),
     timeoutPolicy.geminiFlashMs,
-    "Gemini Flash fallback",
+    `${model} fallback`,
   );
 
   return readGeminiResponse(response);
 }
 
 async function generateViaProviderFallbacks(request: CopilotGenerateRequest): Promise<CopilotResponse> {
-  try {
-    return ensureFallbackKeepsWorking(await generateViaGeminiFlash(request), request);
-  } catch (geminiFlashError) {
+  const primaryModel = request.model || SERVER_GEMMA_MODEL;
+  const fallbacks = SUITE_MODELS.filter(m => m !== primaryModel);
+
+  let errors: string[] = [];
+  for (const model of fallbacks) {
     try {
-      return ensureFallbackKeepsWorking(await generateViaNvidia(request), request);
-    } catch (nvidiaError) {
-      try {
-        return ensureFallbackKeepsWorking(await generateViaLightning(request), request);
-      } catch (lightningError) {
-        throw new Error(
-          `Gemini Flash fallback failed: ${formatFallbackError(geminiFlashError)} NVIDIA fallback failed: ${formatFallbackError(nvidiaError)} Lightning fallback failed: ${formatFallbackError(lightningError)}`
-        );
-      }
+      return ensureFallbackKeepsWorking(await generateViaFallbackModel(request, model), request);
+    } catch (err) {
+      errors.push(`${model} fallback failed: ${formatFallbackError(err)}`);
     }
   }
-}
 
-function safeParseToolArguments(value: string | undefined): Record<string, unknown> {
-  if (!value) {
-    return {};
-  }
-
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
+  throw new Error(errors.join(" "));
 }
 
 export async function generateCopilotContent(
   request: CopilotGenerateRequest
 ): Promise<CopilotResponse> {
-  const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
+  const apiKey = request.apiKey?.trim() || process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
   const timeoutPolicy = getTimeoutPolicy(request);
+  const primaryModel = request.model || SERVER_GEMMA_MODEL;
 
   if (!apiKey) {
     return generateViaProviderFallbacks(request).catch((error: unknown) => {
-      throw new Error(`Missing GEMINI_API_KEY in the server environment, and all fallbacks failed: ${
+      throw new Error(`Missing GEMINI_API_KEY in the environment, and all fallbacks failed: ${
         error instanceof Error ? error.message : String(error ?? "unknown error")
       }`);
     });
@@ -993,7 +758,7 @@ export async function generateCopilotContent(
   try {
     const response = await withTimeout(
       ai.models.generateContent({
-        model: SERVER_GEMMA_MODEL,
+        model: primaryModel,
         contents: convertMessages(request.messages),
         config: {
           systemInstruction: request.systemPrompt,
