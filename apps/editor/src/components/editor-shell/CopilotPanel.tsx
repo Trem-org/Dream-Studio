@@ -17,7 +17,8 @@ import {
   Volume2,
   VolumeX,
   Wrench,
-  X
+  X,
+  Mic
 } from "lucide-react";
 import { buildGameBlobUrl } from "@/lib/game-html";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,8 @@ import type {
 } from "@/lib/copilot/types";
 import { cn } from "@/lib/utils";
 import { useTts } from "@/hooks/useTts";
+import { Conversation } from "@elevenlabs/client";
+import { loadCopilotSettings } from "@/lib/copilot/settings";
 
 type GeneratedGame = { title: string; html: string };
 
@@ -71,6 +74,87 @@ export function CopilotPanel({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isActive = session.status === "thinking" || session.status === "executing";
+
+  const [speechActive, setSpeechActive] = useState(false);
+  const [speechConnecting, setSpeechConnecting] = useState(false);
+  const [speechSession, setSpeechSession] = useState<any>(null);
+  const [speechError, setSpeechError] = useState("");
+
+  useEffect(() => {
+    return () => {
+      if (speechSession) {
+        speechSession.endSession().catch((err: any) => {
+          console.error("[CopilotPanel] Clean unmount speech session end error:", err);
+        });
+      }
+    };
+  }, [speechSession]);
+
+  const handleToggleSpeech = async () => {
+    if (speechActive) {
+      if (speechSession) {
+        try {
+          await speechSession.endSession();
+        } catch (err) {
+          console.error("[CopilotPanel] Error ending speech session:", err);
+        }
+      }
+      setSpeechActive(false);
+      setSpeechConnecting(false);
+      setSpeechSession(null);
+      return;
+    }
+
+    const settings = loadCopilotSettings();
+    const agentId = settings.elevenlabsSpeechEngineId;
+    const apiKey = settings.elevenlabsApiKey;
+
+    if (!agentId || !apiKey) {
+      setSpeechError("Configure ElevenLabs API Key and Speech Engine ID in settings first.");
+      setTimeout(() => setSpeechError(""), 4000);
+      return;
+    }
+
+    setSpeechConnecting(true);
+    setSpeechError("");
+
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      const conversation = await Conversation.startSession({
+        agentId,
+        onConnect: ({ conversationId }) => {
+          console.log("[CopilotPanel] Speech connected:", conversationId);
+          setSpeechActive(true);
+          setSpeechConnecting(false);
+        },
+        onDisconnect: () => {
+          console.log("[CopilotPanel] Speech disconnected");
+          setSpeechActive(false);
+          setSpeechConnecting(false);
+          setSpeechSession(null);
+        },
+        onMessage: (message) => {
+          console.log("[CopilotPanel] Speech message:", message);
+        },
+        onError: (error) => {
+          console.error("[CopilotPanel] Speech error:", error);
+          setSpeechError(error || "Speech connection error");
+          setSpeechActive(false);
+          setSpeechConnecting(false);
+          setSpeechSession(null);
+          setTimeout(() => setSpeechError(""), 4000);
+        },
+      });
+
+      setSpeechSession(conversation);
+    } catch (err) {
+      console.error("[CopilotPanel] Failed to start speech session:", err);
+      setSpeechError(err instanceof Error ? err.message : "Microphone permission denied or connection failed");
+      setSpeechConnecting(false);
+      setTimeout(() => setSpeechError(""), 4000);
+    }
+  };
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -277,6 +361,26 @@ export function CopilotPanel({
       )}
 
       <div className="shrink-0 border-t border-white/8 p-4">
+        {speechError && (
+          <div className="mb-2 rounded-xl border border-rose-400/14 bg-rose-500/10 px-3 py-2 text-[10px] text-rose-300 animate-pulse">
+            {speechError}
+          </div>
+        )}
+        {speechActive && (
+          <div className="mb-2 flex items-center justify-between rounded-xl border border-emerald-400/14 bg-emerald-500/10 px-3 py-2 text-[10px] text-emerald-300">
+            <span className="flex items-center gap-1.5 font-medium">
+              <span className="size-2 rounded-full bg-emerald-400 animate-ping" />
+              Voice Session Active
+            </span>
+            <button
+              onClick={handleToggleSpeech}
+              className="text-[9px] uppercase tracking-wider text-white/44 hover:text-white"
+              type="button"
+            >
+              Disconnect
+            </button>
+          </div>
+        )}
         <input
           accept="image/*"
           className="hidden"
@@ -294,6 +398,31 @@ export function CopilotPanel({
             type="button"
           >
             <Paperclip className="size-3.5" />
+          </button>
+          <button
+            className={cn(
+              "flex size-9 shrink-0 items-center justify-center rounded-xl border transition-all duration-300 relative overflow-hidden",
+              speechActive
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.2)]"
+                : speechConnecting
+                ? "border-[#f6d07d]/30 bg-[#f6d07d]/10 text-[#f6d07d]"
+                : "border-white/10 bg-white/[0.04] text-foreground/40 hover:bg-white/[0.07] hover:text-foreground/72 disabled:pointer-events-none disabled:opacity-40"
+            )}
+            disabled={isActive}
+            onClick={handleToggleSpeech}
+            title={speechActive ? "Disconnect voice session" : speechConnecting ? "Connecting voice..." : "Voice session with Morphus"}
+            type="button"
+          >
+            {speechConnecting ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : speechActive ? (
+              <>
+                <Mic className="size-3.5" />
+                <span className="absolute inset-0 bg-emerald-400/10 animate-ping rounded-xl pointer-events-none" />
+              </>
+            ) : (
+              <Mic className="size-3.5" />
+            )}
           </button>
           <textarea
             autoFocus
