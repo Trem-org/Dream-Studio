@@ -80,7 +80,7 @@ function registerApi(
 
               const ai = new GoogleGenAI({ apiKey: geminiApiKey });
               const responseStream = await ai.models.generateContentStream({
-                model: "gemini-3.1-pro-preview",
+                model: "gemini-3.5-flash",
                 contents,
                 config: {
                   temperature: 0.7,
@@ -629,7 +629,7 @@ async function handleSpeechEngineSetup(
           console.log("[elevenlabs-api] Received speech engine transcript:", transcript);
           try {
             const geminiApiKey = currentConfig?.geminiApiKey?.trim() || process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
-            const geminiModel = currentConfig?.geminiModel || "gemini-3.1-pro-preview";
+            const geminiModel = currentConfig?.geminiModel || "gemini-3.5-flash";
             const temperature = currentConfig?.temperature ?? 0.7;
 
             if (!geminiApiKey) {

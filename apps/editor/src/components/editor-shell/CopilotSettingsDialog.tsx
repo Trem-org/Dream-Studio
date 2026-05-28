@@ -51,9 +51,9 @@ export function CopilotSettingsDialog({ onSaved }: { onSaved?: () => void }) {
               onChange={(e) => setSettings({ ...settings, gemini: { model: e.target.value as GeminiModelId } })}
               value={settings.gemini.model}
             >
+              <option value="gemini-3.5-flash" className="bg-[#0a1510] text-foreground">gemini-3.5-flash</option>
               <option value="gemini-3.1-pro-preview" className="bg-[#0a1510] text-foreground">gemini-3.1-pro-preview</option>
               <option value="gemini-3-flash-preview" className="bg-[#0a1510] text-foreground">gemini-3-flash-preview</option>
-              <option value="gemini-3.5-flash" className="bg-[#0a1510] text-foreground">gemini-3.5-flash</option>
             </select>
           </div>
 

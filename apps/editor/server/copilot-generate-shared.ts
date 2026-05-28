@@ -6,7 +6,7 @@ import type {
   CopilotToolDeclaration
 } from "../src/lib/copilot/types.js";
 
-export const SERVER_GEMMA_MODEL = "gemini-3.1-pro-preview";
+export const SERVER_GEMMA_MODEL = "gemini-3.5-flash";
 const PRIMARY_TIMEOUT_MS = 8_000;
 const FALLBACK_TIMEOUT_MS = 10_000;
 const GEMINI_FLASH_TIMEOUT_MS = 18_000;
@@ -664,7 +664,7 @@ function buildGeminiFlashFallbackText(request: CopilotGenerateRequest) {
 }
 
 
-const SUITE_MODELS = ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-3.5-flash"];
+const SUITE_MODELS = ["gemini-3.5-flash", "gemini-3.1-pro-preview", "gemini-3-flash-preview"];
 
 async function generateViaFallbackModel(request: CopilotGenerateRequest, model: string): Promise<CopilotResponse> {
   const apiKey = request.apiKey?.trim() || process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();

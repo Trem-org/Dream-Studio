@@ -1308,7 +1308,7 @@ function MorphusStart({
         <div className="w-full max-w-2xl">
           <div className="mb-5 text-center">
             <h2 className="text-3xl font-semibold tracking-normal text-white">Create Anything</h2>
-            <p className="mt-2 text-sm text-white/42">Describe the playable HTML game you want to build.</p>
+            <p className="mt-2 text-sm text-white/42">Describe the Triple A game you want to build.</p>
           </div>
           <div className="mx-auto h-[28rem] max-w-xl">
             <CopilotPanel

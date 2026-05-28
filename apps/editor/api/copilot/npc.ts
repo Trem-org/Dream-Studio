@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-const SERVER_GEMMA_MODEL = "gemini-3.1-pro-preview";
+const SERVER_GEMMA_MODEL = "gemini-3.5-flash";
 
 type NpcChatRequest = {
   characterPrompt?: string;
