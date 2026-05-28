@@ -7,6 +7,7 @@ const rootDir = resolve(import.meta.dirname, "..");
 const packagesDir = resolve(rootDir, "packages");
 
 const command = process.argv[2] ?? "build";
+const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
 const dryRun = process.argv.includes("--dry-run");
 const concurrency = parseConcurrency();
 const filters = readOptions("--filter");
@@ -32,9 +33,13 @@ async function main() {
       }
 
       process.stdout.write(`Building ${orderedPackages.length} packages with concurrency ${concurrency}.\n`);
-      await runConcurrently(orderedPackages, concurrency, (pkg) =>
-        runCommand("bun", ["run", "--cwd", pkg.dir, "build"], rootDir, pkg.name)
-      );
+      await runConcurrently(orderedPackages, concurrency, (pkg) => {
+        if (!pkg.hasBuild) {
+          process.stdout.write(`[${pkg.name}] No build script found, skipping.\n`);
+          return Promise.resolve();
+        }
+        return runCommand(npmCmd, ["run", "build", "--prefix", pkg.dir], rootDir, pkg.name);
+      });
       break;
     }
     case "publish": {
@@ -50,9 +55,13 @@ async function main() {
       }
 
       process.stdout.write(`Building ${publishCandidates.length} packages with concurrency ${concurrency}.\n`);
-      await runConcurrently(publishCandidates, concurrency, (pkg) =>
-        runCommand("bun", ["run", "--cwd", pkg.dir, "build"], rootDir, pkg.name)
-      );
+      await runConcurrently(publishCandidates, concurrency, (pkg) => {
+        if (!pkg.hasBuild) {
+          process.stdout.write(`[${pkg.name}] No build script found, skipping.\n`);
+          return Promise.resolve();
+        }
+        return runCommand(npmCmd, ["run", "build", "--prefix", pkg.dir], rootDir, pkg.name);
+      });
 
       process.stdout.write(`Publishing ${publishCandidates.length} packages sequentially.\n`);
 
@@ -81,7 +90,7 @@ async function main() {
 }
 
 function isVersionPublished(pkg) {
-  const result = spawnSync("npm", ["view", pkg.name, "version"], {
+  const result = spawnSync(npmCmd, ["view", pkg.name, "version"], {
     cwd: pkg.dir,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"]
@@ -107,7 +116,8 @@ function loadPackages() {
         dir,
         manifestPath,
         name: manifest.name,
-        version: manifest.version
+        version: manifest.version,
+        hasBuild: !!(manifest.scripts && manifest.scripts.build)
       };
     });
 }
@@ -199,7 +209,8 @@ async function runCommand(binary, args, cwd, label) {
   await new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(binary, args, {
       cwd,
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: process.platform === "win32"
     });
 
     pipeOutput(child.stdout, process.stdout, label);
@@ -220,7 +231,7 @@ async function runCommand(binary, args, cwd, label) {
 function runPublish(pkg, args, cwd) {
   process.stdout.write(`Publishing ${pkg.name}@${pkg.version}.\n`);
 
-  const result = spawnSync("npm", args, {
+  const result = spawnSync(npmCmd, args, {
     cwd,
     stdio: "inherit"
   });
@@ -297,7 +308,7 @@ async function waitUntilVersionPublished(pkg) {
 }
 
 function isSpecificVersionPublished(pkg) {
-  const result = spawnSync("npm", ["view", pkg.name, "versions", "--json"], {
+  const result = spawnSync(npmCmd, ["view", pkg.name, "versions", "--json"], {
     cwd: pkg.dir,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"]

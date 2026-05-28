@@ -12,6 +12,12 @@
       "sourceType": "github",
       "skillPath": "sound-effects/SKILL.md",
       "computedHash": "49dba2b616f4a9b3fcd210c6b8019e0a9909994c7b56c8aebbffbecda61b9f93"
+    },
+    "speech-engine": {
+      "source": "elevenlabs/skills",
+      "sourceType": "github",
+      "skillPath": "speech-engine/SKILL.md",
+      "computedHash": "6b26a7796235f2fd916338656e579547a9ba560931cded7fee88b3b7c3cac006"
     }
   }
 }
