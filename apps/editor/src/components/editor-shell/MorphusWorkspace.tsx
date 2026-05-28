@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Code2, Download, Edit3, ExternalLink, FileCode2, Folder, FolderOpen, FolderUp, LayoutPanelLeft, Loader2, MessageSquareText, Music2, Upload, Volume2, X, Gamepad2, Box } from "lucide-react";
+import { Check, ChevronRight, Code2, Download, Edit3, ExternalLink, FileCode2, Folder, FolderOpen, FolderUp, LayoutPanelLeft, Loader2, MessageSquareText, Music2, Upload, Volume2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type InputHTMLAttributes, type ReactNode } from "react";
 import { buildGameBlobUrl } from "@/lib/game-html";
 import type { CopilotImageAttachment, CopilotSession } from "@/lib/copilot/types";
@@ -6,7 +6,6 @@ import { generateMusicDataUrl, generateSoundEffectDataUrl } from "@/lib/elevenla
 import { loadCopilotSettings } from "@/lib/copilot/settings";
 import { extractMorphusAudioRequests, type MorphusAudioRequest, type MorphusFileRecord } from "@/lib/copilot/morphus-memory";
 import { CopilotPanel } from "@/components/editor-shell/CopilotPanel";
-import { AssetStudio } from "./AssetStudio";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { RagIngestionUI } from "@/components/morphus-rag/RagIngestionUI";
@@ -40,7 +39,6 @@ export function MorphusWorkspace({
   onSettingsChanged,
   session
 }: MorphusWorkspaceProps) {
-  const [activeTab, setActiveTab] = useState<"code" | "assets" | "game">("code");
   const [activePath, setActivePath] = useState("");
   const [draftContent, setDraftContent] = useState("");
   const [editingPath, setEditingPath] = useState("");
@@ -485,60 +483,15 @@ export function MorphusWorkspace({
             type="file"
           />
           <aside className="hidden w-56 shrink-0 flex-col border-r border-white/8 bg-[#11161d] md:flex">
-            {/* Pill Navigation Tab */}
-            <div className="flex h-12 shrink-0 items-center px-3 border-b border-white/8 bg-[#0b0e14]">
-              <div className="flex w-full items-center justify-between gap-0.5 bg-[#181d24] p-0.5 rounded-lg border border-white/5 shadow-inner">
-                <button
-                  onClick={() => setActiveTab("game")}
-                  className={cn(
-                    "flex flex-1 items-center justify-center gap-1.5 py-1 rounded-md text-[10px] font-medium transition-all duration-200",
-                    activeTab === "game"
-                      ? "bg-[#2d3139] text-white shadow-sm border border-white/5 font-semibold"
-                      : "text-white/40 hover:text-white/80"
-                  )}
-                  type="button"
-                >
-                  <Gamepad2 className="size-3 shrink-0" />
-                  Game
-                </button>
-                <button
-                  onClick={() => setActiveTab("assets")}
-                  className={cn(
-                    "flex flex-1 items-center justify-center gap-1.5 py-1 rounded-md text-[10px] font-medium transition-all duration-200",
-                    activeTab === "assets"
-                      ? "bg-[#2d3139] text-white shadow-sm border border-white/5 font-semibold"
-                      : "text-white/40 hover:text-white/80"
-                  )}
-                  type="button"
-                >
-                  <Box className="size-3 shrink-0" />
-                  Assets
-                </button>
-                <button
-                  onClick={() => setActiveTab("code")}
-                  className={cn(
-                    "flex flex-1 items-center justify-center gap-1.5 py-1 rounded-md text-[10px] font-medium transition-all duration-200",
-                    activeTab === "code"
-                      ? "bg-[#2d3139] text-white shadow-sm border border-white/5 font-semibold"
-                      : "text-white/40 hover:text-white/80"
-                  )}
-                  type="button"
-                >
-                  <Code2 className="size-3 shrink-0" />
-                  Code
-                </button>
-              </div>
-            </div>
-
-            <div className="flex h-12 shrink-0 items-center justify-between border-b border-white/8 px-3">
-              <div className="flex items-center gap-2 text-[10px] font-semibold tracking-[0.18em] text-white/44 uppercase">
-                <Folder className="size-3.5" />
-                Explorer
-              </div>
-              {importButtons}
-            </div>
-            {fileList}
-          </aside>
+        <div className="flex h-12 items-center justify-between border-b border-white/8 px-3">
+          <div className="flex items-center gap-2 text-[10px] font-semibold tracking-[0.18em] text-white/44 uppercase">
+            <Folder className="size-3.5" />
+            Explorer
+          </div>
+          {importButtons}
+        </div>
+        {fileList}
+      </aside>
 
       <section className="flex min-w-0 flex-1 flex-col bg-[#15191f]">
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-white/8 bg-[#1b2027] px-4">
@@ -602,42 +555,7 @@ export function MorphusWorkspace({
         )}
 
         <div className="hidden min-h-0 flex-1 grid-cols-[minmax(0,1fr)_22rem] md:grid">
-          {activeTab === "assets" ? (
-            <AssetStudio files={files} onSendMessage={sendMorphusMessage} />
-          ) : activeTab === "game" ? (
-            <div className="h-full min-h-0 min-w-0 overflow-hidden border-white/8 md:border-r flex flex-col">
-              <div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/8 bg-[#191e25] px-3 text-[11px] text-white/52">
-                <Gamepad2 className="size-3.5 shrink-0 text-[#f6d07d]/80" />
-                <span className="min-w-0 flex-1 truncate">{latestGame?.title || "Live Gameplay"}</span>
-              </div>
-              <div className="flex-1 min-h-0 bg-[#0f1115] relative">
-                {playableGame ? (
-                  <iframe
-                    src={buildGameBlobUrl(playableGame.html)}
-                    className="w-full h-full border-0"
-                    sandbox="allow-scripts allow-same-origin allow-modals"
-                    title="Morpheus Gameplay"
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center bg-[#171a1f] px-6 text-center">
-                    <div className="max-w-xs">
-                      <div className="mx-auto flex size-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-amber-200/70">
-                        <Gamepad2 className="size-4 animate-bounce" />
-                      </div>
-                      <div className="mt-4 text-[11px] font-semibold tracking-[0.18em] text-white/62 uppercase">
-                        No game built yet
-                      </div>
-                      <p className="mt-2 text-[11px] leading-relaxed text-white/36">
-                        Describe the game you want to play, and ask Morphus to build it!
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            codePane
-          )}
+          {codePane}
           {chatPane}
         </div>
 
@@ -655,51 +573,14 @@ export function MorphusWorkspace({
                 {fileList}
               </div>
             ) : mobileTab === "code" ? (
-              activeTab === "assets" ? (
-                <AssetStudio files={files} onSendMessage={sendMorphusMessage} />
-              ) : activeTab === "game" ? (
-                <div className="h-full min-h-0 min-w-0 overflow-hidden flex flex-col bg-[#0f1115]">
-                  <div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/8 bg-[#191e25] px-3 text-[11px] text-white/52">
-                    <Gamepad2 className="size-3.5 shrink-0 text-[#f6d07d]/80" />
-                    <span className="min-w-0 flex-1 truncate">{latestGame?.title || "Live Gameplay"}</span>
-                  </div>
-                  <div className="flex-1 min-h-0 relative">
-                    {playableGame ? (
-                      <iframe
-                        src={buildGameBlobUrl(playableGame.html)}
-                        className="w-full h-full border-0"
-                        sandbox="allow-scripts allow-same-origin allow-modals"
-                        title="Morpheus Gameplay"
-                      />
-                    ) : (
-                      <div className="flex h-full items-center justify-center bg-[#171a1f] px-6 text-center">
-                        <div className="max-w-xs">
-                          <div className="mx-auto flex size-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-amber-200/70">
-                            <Gamepad2 className="size-4 animate-bounce" />
-                          </div>
-                          <div className="mt-4 text-[11px] font-semibold tracking-[0.18em] text-white/62 uppercase">
-                            No game built yet
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                codePane
-              )
+              codePane
             ) : (
               chatPane
             )}
           </div>
           <nav className="grid h-16 shrink-0 grid-cols-3 border-t border-white/8 bg-[#0d1218] px-2 py-2">
             <MorphusTabButton active={mobileTab === "files"} icon={<Folder className="size-4" />} label="Files" onClick={() => setMobileTab("files")} />
-            <MorphusTabButton 
-              active={mobileTab === "code"} 
-              icon={activeTab === "assets" ? <Box className="size-4" /> : activeTab === "game" ? <Gamepad2 className="size-4" /> : <Code2 className="size-4" />} 
-              label={activeTab === "assets" ? "Assets" : activeTab === "game" ? "Game" : "Code"} 
-              onClick={() => setMobileTab("code")} 
-            />
+            <MorphusTabButton active={mobileTab === "code"} icon={<Code2 className="size-4" />} label="Code" onClick={() => setMobileTab("code")} />
             <MorphusTabButton active={mobileTab === "chat"} icon={<MessageSquareText className="size-4" />} label="Chat" onClick={() => setMobileTab("chat")} />
           </nav>
         </div>
