@@ -31,6 +31,7 @@ const SFX_PATH = "/api/elevenlabs/sfx";
 const MUSIC_PATH = "/api/elevenlabs/music";
 const VOICE_ADD_PATH = "/api/elevenlabs/voices/add";
 const VOICE_DEL_PREFIX = "/api/elevenlabs/voices/";
+const SCRIBE_TOKEN_PATH = "/api/elevenlabs/scribe-token";
 
 const DEFAULT_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb";
 const DEFAULT_MODEL_ID = "eleven_multilingual_v2";
@@ -145,6 +146,12 @@ function registerApi(
     const isMusic = pathname === MUSIC_PATH || pathname?.endsWith(MUSIC_PATH);
     const isVoiceAdd = pathname === VOICE_ADD_PATH || pathname?.endsWith(VOICE_ADD_PATH);
     const isVoiceDel = pathname?.includes(VOICE_DEL_PREFIX) && req.method === "DELETE";
+    const isScribeToken = pathname === SCRIBE_TOKEN_PATH || pathname?.endsWith(SCRIBE_TOKEN_PATH);
+
+    if (isScribeToken && req.method === "POST") {
+      await handleScribeToken(req, res);
+      return;
+    }
 
     if (isVoices && req.method === "GET") {
       await handleVoices(req, res);
@@ -555,6 +562,34 @@ async function handleVoiceDelete(
     console.error("[elevenlabs-api] voice delete error", error);
     sendJson(res, 500, {
       error: error instanceof Error ? error.message : "Internal server error.",
+    });
+  }
+}
+
+async function handleScribeToken(
+  req: import("node:http").IncomingMessage,
+  res: import("node:http").ServerResponse,
+) {
+  try {
+    const response = await elevenLabsFetch(
+      "/v1/single-use-token/realtime_scribe",
+      { method: "POST" },
+      getClientKey(req)
+    );
+
+    if (!response.ok) {
+      const detail = await readUpstreamErrorDetail(response);
+      console.error("[elevenlabs-api] Scribe token upstream error", response.status, detail);
+      sendJson(res, response.status, { error: "Failed to fetch Scribe token.", detail });
+      return;
+    }
+
+    const data = await response.json() as unknown;
+    sendJson(res, 200, data);
+  } catch (error) {
+    console.error("[elevenlabs-api] Scribe token error", error);
+    sendJson(res, 500, {
+      error: error instanceof Error ? error.message : "Failed to fetch Scribe token.",
     });
   }
 }

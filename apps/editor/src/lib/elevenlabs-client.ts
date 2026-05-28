@@ -283,3 +283,17 @@ export async function setupSpeechEngine(): Promise<void> {
     throw new Error(`Speech Engine setup failed: ${response.statusText}`);
   }
 }
+
+export async function getScribeToken(): Promise<string> {
+  const response = await fetch("/api/elevenlabs/scribe-token", {
+    method: "POST",
+    headers: authHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readElevenLabsError(response, "scribe-token" as any));
+  }
+
+  const data = await response.json() as { token: string };
+  return data.token;
+}
