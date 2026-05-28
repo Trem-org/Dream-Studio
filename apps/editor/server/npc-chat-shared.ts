@@ -7,6 +7,7 @@ export type NpcChatRequest = {
   npcName: string;
   userMessage: string;
   apiKey?: string;
+  model?: string;
 };
 
 export async function generateNpcChatReply(params: NpcChatRequest) {
@@ -15,6 +16,8 @@ export async function generateNpcChatReply(params: NpcChatRequest) {
   if (!apiKey) {
     throw new Error("Missing GEMINI_API_KEY/API key configuration.");
   }
+
+  const model = params.model || SERVER_GEMMA_MODEL;
 
   const systemInstruction = [
     `You are "${params.npcName}" in a real-time 3D game the designer is building.`,
@@ -38,7 +41,7 @@ export async function generateNpcChatReply(params: NpcChatRequest) {
 
   const ai = new GoogleGenAI({ apiKey });
   const response = await ai.models.generateContent({
-    model: SERVER_GEMMA_MODEL,
+    model,
     contents,
     config: {
       maxOutputTokens: 512,

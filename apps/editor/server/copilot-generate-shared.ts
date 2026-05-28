@@ -20,6 +20,7 @@ export type CopilotGenerateRequest = {
   systemPrompt: string;
   temperature: number;
   apiKey?: string;
+  model?: string;
 };
 
 type TimeoutPolicy = {
@@ -27,6 +28,31 @@ type TimeoutPolicy = {
   fallbackMs: number;
   geminiFlashMs: number;
 };
+
+function isMorphusRequest(request: CopilotGenerateRequest) {
+  return request.tools.length === 1 && request.tools[0]?.name === "generate_game_html";
+}
+
+function getTimeoutPolicy(request: CopilotGenerateRequest): TimeoutPolicy {
+  if (isMorphusRequest(request)) {
+    return {
+      primaryMs: MORPHUS_PRIMARY_TIMEOUT_MS,
+      fallbackMs: MORPHUS_FALLBACK_TIMEOUT_MS,
+      geminiFlashMs: MORPHUS_GEMINI_FLASH_TIMEOUT_MS
+    };
+  }
+
+  return {
+    primaryMs: PRIMARY_TIMEOUT_MS,
+    fallbackMs: FALLBACK_TIMEOUT_MS,
+    geminiFlashMs: GEMINI_FLASH_TIMEOUT_MS
+  };
+}
+
+function formatFallbackError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message || "unknown error";
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -509,41 +535,7 @@ type LightningMessage =
       content: string;
     };
 
-type LightningPayload = {
-  choices?: Array<{
-    message?: {
-      content?: Array<{ text?: string; type?: string }> | string | null;
-      tool_calls?: Array<{
-        id?: string;
-        function?: {
-          arguments?: string;
-          name?: string;
-        };
-      }>;
-    };
-  }>;
-  error?: { message?: string } | string;
-  message?: string;
-  detail?: string;
-} | null;
 
-type LightningChatPayload = {
-  model: string;
-  messages: Array<LightningMessage | { role: "system"; content: string } | { role: "assistant" | "user"; content: string }>;
-  temperature: number;
-  tools?: ReturnType<typeof convertToolsForLightning>;
-  tool_choice?: "auto";
-};
-
-class LightningRequestError extends Error {
-  constructor(
-    message: string,
-    readonly status: number
-  ) {
-    super(message);
-    this.name = "LightningRequestError";
-  }
-}
 
 function convertMessagesForLightning(messages: CopilotMessage[]) {
   const converted: LightningMessage[] = [];

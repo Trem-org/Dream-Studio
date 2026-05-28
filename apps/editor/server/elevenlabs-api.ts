@@ -10,6 +10,18 @@
 
 import type { Plugin, PreviewServer, ViteDevServer } from "vite";
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
+import { GoogleGenAI } from "@google/genai";
+import type { TranscriptMessage } from "@elevenlabs/elevenlabs-js/wrapper/speech-engine/types";
+import type { SpeechEngineSession } from "@elevenlabs/elevenlabs-js/wrapper/speech-engine/SpeechEngineSession";
+
+let activeAttachment: any = null;
+let currentConfig: {
+  elevenlabsApiKey: string;
+  elevenlabsSpeechEngineId: string;
+  geminiApiKey: string;
+  geminiModel: string;
+  temperature: number;
+} | null = null;
 
 const ELEVENLABS_BASE = "https://api.elevenlabs.io";
 
@@ -42,10 +54,84 @@ export function createElevenLabsApiPlugin(): Plugin {
 }
 
 function registerApi(
-  server: Pick<ViteDevServer, "middlewares"> | Pick<PreviewServer, "middlewares">,
+  server: ViteDevServer | PreviewServer,
 ) {
+  const envApiKey = process.env.ELEVENLABS_API_KEY?.trim();
+  const envEngineId = process.env.ELEVENLABS_SPEECH_ENGINE_ID?.trim();
+  if (envApiKey && envEngineId && server.httpServer) {
+    const geminiApiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
+    if (geminiApiKey) {
+      console.log(`[elevenlabs-api] Auto-initializing Speech Engine ${envEngineId} from env variables`);
+      const client = new ElevenLabsClient({ apiKey: envApiKey });
+      const path = "/api/elevenlabs/speech-engine/ws";
+      (client as any).speechEngine.attach(
+        envEngineId,
+        server.httpServer as any,
+        path,
+        {
+          debug: true,
+          onTranscript: async (transcript: TranscriptMessage[], signal: AbortSignal, session: SpeechEngineSession) => {
+            console.log("[elevenlabs-api] Received speech engine transcript (env):", transcript);
+            try {
+              const contents = transcript.map((msg: TranscriptMessage) => ({
+                role: msg.role === "user" ? "user" : "model",
+                parts: [{ text: msg.content }]
+              }));
+
+              const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+              const responseStream = await ai.models.generateContentStream({
+                model: "gemini-3.1-pro-preview",
+                contents,
+                config: {
+                  temperature: 0.7,
+                  maxOutputTokens: 1024,
+                  systemInstruction: "You are a helpful, real-time voice assistant. Respond with natural, conversational spoken dialogue only. Keep responses short (1-3 sentences) and optimized for text-to-speech."
+                }
+              });
+
+              const textChunkGenerator = async function* () {
+                for await (const chunk of responseStream) {
+                  if (signal.aborted) {
+                    break;
+                  }
+                  if (chunk.text) {
+                    yield chunk.text;
+                  }
+                }
+              };
+
+              await session.sendResponse(textChunkGenerator());
+            } catch (err) {
+              console.error("[elevenlabs-api] Error generating reply via Gemini (env):", err);
+              session.sendResponse("Sorry, I encountered an error generating a response.");
+            }
+          },
+          onInit: (conversationId: string) => {
+            console.log("[elevenlabs-api] Speech engine session initialized (env):", conversationId);
+          },
+          onClose: () => {
+            console.log("[elevenlabs-api] Speech engine session closed (env).");
+          },
+          onError: (error: Error) => {
+            console.error("[elevenlabs-api] Speech engine error (env):", error);
+          }
+        }
+      ).then((attachment: any) => {
+        activeAttachment = attachment;
+      }).catch((err: any) => {
+        console.error("[elevenlabs-api] Failed to auto-initialize Speech Engine from env variables:", err);
+      });
+    }
+  }
+
   server.middlewares.use(async (req, res, next) => {
     const pathname = req.url?.split("?")[0];
+
+    const isSpeechEngineSetup = pathname === "/api/elevenlabs/speech-engine/setup" || pathname?.endsWith("/api/elevenlabs/speech-engine/setup");
+    if (isSpeechEngineSetup && req.method === "POST") {
+      await handleSpeechEngineSetup(req, res, server.httpServer as any);
+      return;
+    }
 
     if (req.method === "OPTIONS" && pathname?.startsWith("/api/elevenlabs/")) {
       res.writeHead(204, CORS_HEADERS);
@@ -492,4 +578,117 @@ async function readJson<T>(req: import("node:http").IncomingMessage): Promise<T>
     });
     req.on("error", reject);
   });
+}
+
+async function handleSpeechEngineSetup(
+  req: import("node:http").IncomingMessage,
+  res: import("node:http").ServerResponse,
+  httpServer: import("node:http").Server | null,
+) {
+  try {
+    if (!httpServer) {
+      sendJson(res, 500, { error: "No HTTP server available to attach Speech Engine." });
+      return;
+    }
+
+    const body = await readJson<{
+      elevenlabsApiKey: string;
+      elevenlabsSpeechEngineId: string;
+      geminiApiKey: string;
+      geminiModel: string;
+      temperature: number;
+    }>(req);
+
+    if (!body?.elevenlabsApiKey?.trim() || !body?.elevenlabsSpeechEngineId?.trim()) {
+      sendJson(res, 400, { error: "ElevenLabs API Key and Speech Engine ID are required." });
+      return;
+    }
+
+    if (activeAttachment) {
+      try {
+        await activeAttachment.close();
+      } catch (err) {
+        console.error("[elevenlabs-api] Error closing active attachment:", err);
+      }
+      activeAttachment = null;
+    }
+
+    currentConfig = body;
+
+    const client = new ElevenLabsClient({ apiKey: body.elevenlabsApiKey });
+    const path = "/api/elevenlabs/speech-engine/ws";
+    console.log(`[elevenlabs-api] Attaching Speech Engine ${body.elevenlabsSpeechEngineId} to ${path}`);
+
+    activeAttachment = await (client as any).speechEngine.attach(
+      body.elevenlabsSpeechEngineId,
+      httpServer as any,
+      path,
+      {
+        debug: true,
+        onTranscript: async (transcript: TranscriptMessage[], signal: AbortSignal, session: SpeechEngineSession) => {
+          console.log("[elevenlabs-api] Received speech engine transcript:", transcript);
+          try {
+            const geminiApiKey = currentConfig?.geminiApiKey?.trim() || process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
+            const geminiModel = currentConfig?.geminiModel || "gemini-3.1-pro-preview";
+            const temperature = currentConfig?.temperature ?? 0.7;
+
+            if (!geminiApiKey) {
+              console.error("[elevenlabs-api] Missing Gemini API Key configuration.");
+              session.sendResponse("Error: Gemini API Key is not configured in settings.");
+              return;
+            }
+
+            const contents = transcript.map((msg: TranscriptMessage) => ({
+              role: msg.role === "user" ? "user" : "model",
+              parts: [{ text: msg.content }]
+            }));
+
+            const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+            const responseStream = await ai.models.generateContentStream({
+              model: geminiModel,
+              contents,
+              config: {
+                temperature,
+                maxOutputTokens: 1024,
+                systemInstruction: "You are a helpful, real-time voice assistant. Respond with natural, conversational spoken dialogue only. Keep responses short (1-3 sentences) and optimized for text-to-speech."
+              }
+            });
+
+            const textChunkGenerator = async function* () {
+              for await (const chunk of responseStream) {
+                if (signal.aborted) {
+                  console.log("[elevenlabs-api] Speech engine response generation aborted.");
+                  break;
+                }
+                if (chunk.text) {
+                  yield chunk.text;
+                }
+              }
+            };
+
+            await session.sendResponse(textChunkGenerator());
+          } catch (err) {
+            console.error("[elevenlabs-api] Error generating reply via Gemini:", err);
+            session.sendResponse("Sorry, I encountered an error generating a response.");
+          }
+        },
+        onInit: (conversationId: string) => {
+          console.log("[elevenlabs-api] Speech engine session initialized:", conversationId);
+        },
+        onClose: () => {
+          console.log("[elevenlabs-api] Speech engine session closed.");
+        },
+        onError: (error: Error) => {
+          console.error("[elevenlabs-api] Speech engine error:", error);
+        }
+      }
+    );
+
+    sendJson(res, 200, { ok: true });
+  } catch (error) {
+    console.error("[elevenlabs-api] Speech Engine setup error:", error);
+    sendJson(res, 500, {
+      error: error instanceof Error ? error.message : "Internal server error.",
+    });
+  }
 }

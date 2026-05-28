@@ -258,3 +258,28 @@ function blobToDataUrl(blob: Blob): Promise<string> {
     reader.readAsDataURL(blob);
   });
 }
+
+export async function setupSpeechEngine(): Promise<void> {
+  const settings = loadCopilotSettings();
+  if (!settings.elevenlabsApiKey || !settings.elevenlabsSpeechEngineId) {
+    return;
+  }
+
+  const response = await fetch("/api/elevenlabs/speech-engine/setup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      elevenlabsApiKey: settings.elevenlabsApiKey,
+      elevenlabsSpeechEngineId: settings.elevenlabsSpeechEngineId,
+      geminiApiKey: settings.geminiApiKey,
+      geminiModel: settings.gemini.model,
+      temperature: settings.temperature
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("[elevenlabs-client] Speech Engine setup failed:", errorText);
+    throw new Error(`Speech Engine setup failed: ${response.statusText}`);
+  }
+}

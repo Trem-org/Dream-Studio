@@ -12,15 +12,18 @@ const DEFAULT_SETTINGS: CopilotSettings = {
   codex: { model: "gpt-5.4" },
   temperature: 0.3,
   elevenlabsApiKey: "",
-  geminiApiKey: ""
+  geminiApiKey: "",
+  elevenlabsSpeechEngineId: ""
 };
 
 export function loadCopilotSettings(): CopilotSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_SETTINGS };
+    if (!raw) {
+      return { ...DEFAULT_SETTINGS };
+    }
 
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(raw) as Partial<CopilotSettings>;
 
     return {
       provider: "gemini",
@@ -32,7 +35,8 @@ export function loadCopilotSettings(): CopilotSettings {
       },
       temperature: validTemperature(parsed.temperature),
       elevenlabsApiKey: typeof parsed.elevenlabsApiKey === "string" ? parsed.elevenlabsApiKey : "",
-      geminiApiKey: typeof parsed.geminiApiKey === "string" ? parsed.geminiApiKey : ""
+      geminiApiKey: typeof parsed.geminiApiKey === "string" ? parsed.geminiApiKey : "",
+      elevenlabsSpeechEngineId: typeof parsed.elevenlabsSpeechEngineId === "string" ? parsed.elevenlabsSpeechEngineId : ""
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

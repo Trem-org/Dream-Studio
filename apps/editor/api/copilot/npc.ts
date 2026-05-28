@@ -9,6 +9,7 @@ type NpcChatRequest = {
   npcName?: string;
   userMessage?: string;
   apiKey?: string;
+  model?: string;
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -36,6 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 async function generateNpcReply(apiKey: string, params: NpcChatRequest) {
   const npcName = params.npcName?.trim() || "NPC";
+  const model = params.model || SERVER_GEMMA_MODEL;
   const systemInstruction = [
     `You are "${npcName}" in a real-time 3D game the designer is building.`,
     params.characterPrompt?.trim() || "Stay in character. Keep answers to about 2-4 short sentences unless the player clearly wants more.",
@@ -56,7 +58,7 @@ async function generateNpcReply(apiKey: string, params: NpcChatRequest) {
 
   const ai = new GoogleGenAI({ apiKey });
   const response = await ai.models.generateContent({
-    model: SERVER_GEMMA_MODEL,
+    model,
     contents,
     config: {
       maxOutputTokens: 512,

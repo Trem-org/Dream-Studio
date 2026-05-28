@@ -16,6 +16,7 @@ export type CopilotSettings = {
   temperature: number;
   elevenlabsApiKey: string;
   geminiApiKey: string;
+  elevenlabsSpeechEngineId: string;
 };
 
 // ── Messages ──────────────────────────────────────────────────
